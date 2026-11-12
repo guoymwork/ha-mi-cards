@@ -344,6 +344,47 @@ def _build_dashboard_config(tree: dict[str, Any], accent: str) -> dict[str, Any]
     return {"views": views}
 
 
+def _has_foreign_content(config: Any) -> bool:
+    """判断面板里是否存在「非本集成生成」的内容。
+
+    用来避免覆盖用户自己在同一路径下建的面板：
+
+    * 空面板（没有视图 / 视图为空）—— 没有东西可丢，允许接管
+    * 视图全是本集成的区域墙 —— 自己写的，可以放心覆盖
+    * 视图里混了别的卡片 —— 是用户的内容，绝不能覆盖
+    """
+    if not isinstance(config, dict):
+        return False
+
+    def _has_wall(cards: Any) -> bool:
+        return any(
+            isinstance(card, dict) and card.get("type") == CARD_TYPE_WALL
+            for card in (cards or [])
+        )
+
+    views = config.get("views") or []
+    if not views:
+        return False
+
+    for view in views:
+        if not isinstance(view, dict):
+            # 无法识别的视图结构，保守当成用户内容
+            return True
+
+        sections = view.get("sections") or []
+        if sections:
+            # sections 布局：以 section 里的卡片为准
+            for section in sections:
+                if not isinstance(section, dict) or not _has_wall(section.get("cards")):
+                    return True
+            continue
+
+        if not _has_wall(view.get("cards")):
+            return True
+
+    return False
+
+
 async def _async_write_dashboard(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """创建/更新 Lovelace 面板。"""
     from homeassistant.components.lovelace.const import LOVELACE_DATA
@@ -377,6 +418,16 @@ async def _async_write_dashboard(hass: HomeAssistant, entry: ConfigEntry) -> Non
         current = await dash.async_load(False)
     except Exception:  # noqa: BLE001 - 配置不存在是正常情况
         current = None
+
+    if _has_foreign_content(current):
+        # 同路径已有别人的内容，绝不能覆盖
+        _LOGGER.warning(
+            "面板路径 %s 已被占用且不是本集成创建的，已跳过写入以保护现有配置；"
+            "请在集成配置里换一个面板路径",
+            url_path,
+        )
+        return
+
     if current != config:
         await dash.async_save(config)
         _LOGGER.debug("面板 %s 已更新（%d 个视图）", url_path, len(config["views"]))
@@ -474,8 +525,13 @@ async def _async_auto_sync_images(hass: HomeAssistant) -> None:
     _invalidate_tree(hass)
 
 
-async def _async_service_sync_images(hass: HomeAssistant, call: ServiceCall) -> None:
-    """服务 mi_cards.sync_images：抓取/标准化产品图。"""
+async def _async_service_sync_images(call: ServiceCall) -> None:
+    """服务 mi_cards.sync_images：抓取/标准化产品图。
+
+    注意：HA 的 ``services.async_register`` 回调签名是 ``func(call)``，
+    **不传 hass**，hass 要从 ``hass.data`` 里取。
+    """
+    hass: HomeAssistant = call.hass
     images: ImageManager | None = hass.data.get(DOMAIN, {}).get("images")
     if images is None:
         _LOGGER.warning("集成尚未就绪")
@@ -500,8 +556,13 @@ async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await _async_write_dashboard(hass, entry)
 
 
-async def _async_service_refresh(hass: HomeAssistant, call: ServiceCall) -> None:
-    """服务 mi_cards.refresh：重建设备树并重新生成面板。"""
+async def _async_service_refresh(call: ServiceCall) -> None:
+    """服务 mi_cards.refresh：重建设备树并重新生成面板。
+
+    注意：HA 的 ``services.async_register`` 回调签名是 ``func(call)``，
+    **不传 hass**，hass 要从 ``call.hass`` 取。
+    """
+    hass: HomeAssistant = call.hass
     entry: ConfigEntry | None = hass.data.get(DOMAIN, {}).get("entry")
     _invalidate_tree(hass)
     if entry is not None:
