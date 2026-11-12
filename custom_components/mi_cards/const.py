@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "mi_cards"
 NAME: Final = "米家风格设备面板"
-VERSION: Final = "1.0.0"
+VERSION: Final = "1.0.1"
 
 # 前端卡片资源：注册到 /api/mi_cards_static/ 下，由 Lovelace 作为 module 资源加载
 STATIC_URL_BASE: Final = "/api/mi_cards_static"

@@ -64,11 +64,22 @@
 type: custom:mi-device-wall
 title: 我的家          # 可选
 accent: "#ff6a00"      # 可选
-columns: 260           # 卡片宽度（px），默认 260
+columns: 260           # 桌面端卡片宽度（px），默认 260
+mobile_columns: 2      # 手机端列数，默认 2
 show_tabs: true        # 内部区域标签栏，默认 true
 show_area: true        # 卡片副标题是否显示「区域 | 状态」
 area: living_room      # 限定某个区域（区域 id / 名称）
 ```
+
+### 响应式断点
+
+| 视口宽度 | 布局 |
+| --- | --- |
+| > 900px | 固定 260px 宽卡片，自动填充列数（1440px 下 4 列） |
+| 620–900px | 固定 210px 宽卡片 |
+| ≤ 620px | 双列铺满容器宽度（`mobile_columns` 可调），卡片内部按 `cqh` 等比缩放 |
+
+手机端卡片保持 1.43:1 比例，图片、名称、状态、按钮随卡片尺寸等比缩放，不会错位。
 
 另外两个卡片类型也可以单独使用：
 

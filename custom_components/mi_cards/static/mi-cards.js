@@ -1085,7 +1085,8 @@
    * 配置项：
    *   area       限定某个区域（区域 id 或名称）。给了就不显示区域标签栏
    *   accent     主色，默认 #ff6a00
-   *   columns    卡片宽度（px），默认 260
+   *   columns    卡片宽度（px），默认 260（桌面端）
+   *   mobile_columns 手机端列数，默认 2
    *   show_area  卡片副标题里是否显示「区域 | 状态」，默认：全屋视图 true、区域视图 false
    *   title      顶部标题（可省略）
    */
@@ -1124,6 +1125,21 @@
       grid-template-columns: repeat(auto-fill, var(--mi-card-w, 260px));
     }
     .mi-grid > mi-device-card { min-width: 0; aspect-ratio: 1.43 / 1; }
+
+    /* 平板：卡片收窄，仍然按整块排布 */
+    @media (max-width: 900px) {
+      .mi-grid { grid-template-columns: repeat(auto-fill, 210px); gap: 14px; }
+    }
+
+    /* 手机：双列并铺满容器宽度（不再留一大片空白）。
+       卡片内部尺寸全部用 cqh 等比缩放，窄列下自动缩小且保持米家比例。 */
+    @media (max-width: 620px) {
+      .mi-grid {
+        grid-template-columns: repeat(var(--mi-mobile-cols, 2), minmax(0, 1fr));
+        gap: 10px;
+        justify-content: stretch;
+      }
+    }
 
     .mi-empty {
       text-align: center; color: var(--secondary-text-color, #8a8a8a);
@@ -1262,6 +1278,11 @@
 
       this._box.style.setProperty("--mi-accent", accent);
       this._box.style.setProperty("--mi-card-w", (Number(cfg.columns) || 260) + "px");
+      // 手机端列数，默认 2（可用 mobile_columns 覆盖）
+      this._box.style.setProperty(
+        "--mi-mobile-cols",
+        String(Number(cfg.mobile_columns) || 2)
+      );
 
       if (!tree) {
         this._box.innerHTML = `<div class="mi-empty">正在加载设备…</div>`;
