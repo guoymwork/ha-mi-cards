@@ -1,0 +1,46 @@
+{
+  "title": "米家风格设备面板",
+  "config": {
+    "step": {
+      "user": {
+        "title": "米家风格设备面板",
+        "description": "安装后会自动生成一个设备面板，并从米家产品百科补齐设备实物图。房间或设备增减后，面板会自动更新。",
+        "data": {
+          "dashboard_url": "面板路径",
+          "dashboard_title": "面板标题",
+          "accent": "主色",
+          "show_in_sidebar": "在侧边栏显示",
+          "auto_sync_images": "自动补齐产品图"
+        },
+        "errors": {
+          "invalid_url": "面板路径不能为空，且必须包含连字符 (-)，例如 device-cards",
+          "invalid_accent": "主色请用 #RRGGBB 形式，例如 #ff6a00",
+          "invalid_title": "标题不能为空"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "已经配置过米家风格设备面板了，只允许一个实例。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "米家风格设备面板 设置",
+        "description": "修改后会自动重新生成面板。",
+        "data": {
+          "dashboard_url": "面板路径",
+          "dashboard_title": "面板标题",
+          "accent": "主色",
+          "show_in_sidebar": "在侧边栏显示",
+          "auto_sync_images": "自动补齐产品图"
+        },
+        "errors": {
+          "invalid_url": "面板路径不能为空，且必须包含连字符 (-)，例如 device-cards",
+          "invalid_accent": "主色请用 #RRGGBB 形式，例如 #ff6a00",
+          "invalid_title": "标题不能为空"
+        }
+      }
+    }
+  }
+}

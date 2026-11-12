@@ -1,0 +1,10 @@
+{
+  "name": "米家风格设备面板",
+  "content_in_root": false,
+  "render_readme": true,
+  "homeassistant": "2024.11.0",
+  "hacs": "1.34.0",
+  "country": ["CN"],
+  "categories": ["dashboard"],
+  "keywords": ["mijia", "xiaomi", "lovelace", "dashboard", "米家", "面板"]
+}
