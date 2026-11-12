@@ -19,8 +19,8 @@ ha_at.txt
 *.token
 
 # 旧版方案的构建产物与大体积素材（不随仓库发布）
-legacy/dist/
-legacy/screenshots/
+implementations/legacy-standalone/dist/
+implementations/legacy-standalone/screenshots/
 
 # 手动安装包（发布到 Releases，不进仓库）
 *.zip

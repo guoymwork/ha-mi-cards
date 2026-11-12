@@ -1,145 +1,170 @@
-# 米家风格设备面板（Mi Home Style Device Panel）
+# 米家风格设备面板 · mi-cards
 
-把米家 App 那种「一个设备一张横向卡片」的桌面搬进 Home Assistant，
-而且**不需要任何外部机器** —— 设备树、产品图、面板生成全部在 HA 进程内完成。
+把小米智能家居那种「一个设备一张横向卡片」的桌面搬进 Home Assistant。
 
-```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│   实物图      │  │   实物图      │  │   实物图      │
-│        ⏻     │  │        ⏻     │  │        ⏻     │
-│ 厨房·小厨宝   │  │ 客厅·空调     │  │  主卧·扫地机   │
-│ 保温中        │  │ 制冷中        │  │ 清扫中        │
-└──────────────┘  └──────────────┘  └──────────────┘
-```
+**HACS 一装即用** —— 不需要常驻电脑、不需要 SSH、不需要令牌、不需要定时任务。
+
+---
 
 ## 特性
 
-- **1.43:1 横向卡片**，右上角圆形按钮随设备状态点亮（扫地机自动变成 🧹 小扫把）
-- **实物图优先**：从米家产品百科抓官方产品图，统一裁切归一化（主体长边占 86%）
-- **点击卡片**弹出设备详情：温度圈、开关、档位选择、常用功能列表
-- **区域分类**放在 HA 原生顶部二级菜单（一个房间一个 view）
-- **全屋视图**显示「区域 | 状态」，**区域视图**只显示状态
-- **房间/设备增减改名自动适配** —— 注册表一变，前端立刻重建，不需要改任何配置
-- **零配置**：装好即用，不需要 SSH、不需要令牌、不需要定时任务
+| 特性 | 说明 |
+| --- | --- |
+| **1.43:1 横向卡片** | 和米家 App 一致的比例，右上角**圆形按钮**随设备状态点亮（扫地机自动变成扫把） |
+| **实物图优先** | 从米家产品百科抓官方产品图，裁切归一化后所有设备视觉大小一致 |
+| **区域分类** | 放在 HA 原生**顶部二级菜单**，一个房间一个视图 |
+| **双态副标题** | 全屋视图显示「客厅 \| 开启」，区域视图只显示「开启」 |
+| **设备详情浮层** | 点卡片弹出：实物图 + 温度圈 + 开关 + 档位 + 常用功能列表 |
+| **房间自适应** | 房间/设备增减改名自动适配，注册表一变前端立刻重建 |
+| **手机双列** | 手机 App 上两列铺满，不再是难看的大片留白 |
+| **零配置** | 装上 → 重启 → 添加集成，完事 |
 
-## 安装
+---
 
-### HACS（推荐）
+## 安装（HACS）
 
-1. 在 HACS 里添加自定义仓库 `https://github.com/guoymwork/ha-mi-cards`
+1. HACS → 侧边栏「自定义仓库」→ 添加 `https://github.com/guoymwork/ha-mi-cards`
 2. 分类选「仪表盘」，搜索「米家风格设备面板」
 3. 下载后 **重启 Home Assistant**
-4. 前往「设置 → 设备与服务」，点击右上角「添加集成」，搜索「米家风格设备面板」
-5. 按提示确认面板路径（默认 `device-cards`）与主色（默认 `#ff6a00`）
-6. 侧边栏会出现「设备」面板
+4. 设置 → 设备与服务 → 右上角「添加集成」→ 搜索「米家风格设备面板」
+5. 确认面板路径（默认 `device-cards`）与主色（默认 `#ff6a00`）
+6. 侧边栏出现「设备」面板
 
-### 手动安装
+<details>
+<summary>手动安装</summary>
 
-把 `custom_components/mi_cards` 整个目录拷到 HA 的 `config/custom_components/` 下，重启即可。
+下载 [Release](https://github.com/guoymwork/ha-mi-cards/releases) 里的
+`mi_cards-<版本>.zip`，解压到 HA 的 `config/custom_components/` 下，重启。
+</details>
 
-也可以从 [Releases](https://github.com/guoymwork/ha-mi-cards/releases) 下载 `mi_cards.zip`
-（内容就是 `custom_components/mi_cards/`），解压到 `config/custom_components/` 下。
+---
 
-## 配置项
+## 卡片用法
 
-| 选项 | 默认值 | 说明 |
-| --- | --- | --- |
-| 面板路径 | `device-cards` | 面板 URL 路径，必须含连字符 `-` |
-| 面板标题 | `设备` | 侧边栏显示的名字 |
-| 主色 | `#ff6a00` | 卡片强调色，`#RRGGBB` |
-| 在侧边栏显示 | 是 | 关掉则只保留 URL 访问 |
-| 自动补齐产品图 | 是 | 开机后自动抓取缺失的实物图 |
-
-改完点「配置」即可，面板会自动重建。
-
-> **面板路径冲突保护**：如果你在这个路径上已经建过自己的面板，集成**不会覆盖它**，
-> 而是在日志里打一条 `已被占用且不是本集成创建的` 警告。此时去集成配置里换一个面板路径即可。
-> 空面板则会被集成正常接管。
-
-## 卡片
-
-装好集成后，`custom:mi-device-wall` 卡片可以直接在任何面板里用：
+集成会自动生成一个「设备」面板。也可以把卡片放进你自己建的任意 Lovelace 面板：
 
 ```yaml
 type: custom:mi-device-wall
 title: 我的家          # 可选
-accent: "#ff6a00"      # 可选
-columns: 260           # 桌面端卡片宽度（px），默认 260
+accent: "#ff6a00"      # 可选，主色
+columns: 260           # 桌面卡片宽度（px），默认 260
 mobile_columns: 2      # 手机端列数，默认 2
 show_tabs: true        # 内部区域标签栏，默认 true
 show_area: true        # 卡片副标题是否显示「区域 | 状态」
-area: living_room      # 限定某个区域（区域 id / 名称）
+area: living_room      # 只显示某个区域（区域 id / 名称）
 ```
 
-### 响应式断点
+单张设备卡：
 
-| 视口宽度 | 布局 |
-| --- | --- |
-| > 900px | 固定 260px 宽卡片，自动填充列数（1440px 下 4 列） |
-| 620–900px | 固定 210px 宽卡片 |
-| ≤ 620px | 双列铺满容器宽度（`mobile_columns` 可调），卡片内部按 `cqh` 等比缩放 |
-
-手机端卡片保持 1.43:1 比例，图片、名称、状态、按钮随卡片尺寸等比缩放，不会错位。
-
-另外两个卡片类型也可以单独使用：
-
-| 类型 | 用途 |
-| --- | --- |
-| `custom:mi-device-card` | 单张设备小卡片 |
-| `custom:mi-device-detail` | 设备详情页 |
-| `custom:mi-device-wall` | 动态设备墙（推荐，自动跟随注册表变化） |
-
-## 服务
-
-| 服务 | 说明 |
-| --- | --- |
-| `mi_cards.sync_images` | 抓取/标准化产品图。可指定 `models` 列表、`force: true` 强制重抓 |
-| `mi_cards.refresh` | 重扫设备树并重新生成面板 |
-
-## 工作原理
-
-```
-        ┌──────────────────────── HA 进程内 ────────────────────────┐
-        │                                                          │
- 集成注册表  →  device_tree.build_device_tree()  →  WebSocket 下发
-  (实时)         读 entity/device/area 注册表        mi_cards/device_tree
-        │                                                 │
-        │                                                 ▼
-        │                                    custom:mi-device-wall
-        │                                    （订阅 mi_cards/tree_updated）
-        │
-        └──  images.ImageManager  →  米家百科 API  →  Pillow 标准化
-                                     →  www/mi_cards/images/*.png
+```yaml
+type: custom:mi-device-card
+entity: switch.living_room_lamp
 ```
 
-- 设备树**不落盘**，每次按需从注册表现算，房间/设备改名立刻生效
-- 产品图缓存在 `config/www/mi_cards/images/`，原始图留在 `config/mi_cards/raw/`
-- 面板是 Lovelace 存储模式，配置写在 `config/.storage/lovelace.device_cards`
+---
 
-## 兼容版本
+## 配置项与服务
 
-HA `2024.11` 及以上（开发与验证环境为 `2026.11.1`）。
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `dashboard_url` | `device-cards` | 面板 URL 路径。**已被你自己的面板占用时，集成会跳过写入并保留你的配置** |
+| `dashboard_title` | `设备` | 侧边栏与面板标题 |
+| `accent` | `#ff6a00` | 主色 |
+| `show_in_sidebar` | `true` | 是否在侧边栏显示 |
+| `auto_sync_images` | `true` | 启动时自动补齐产品图 |
+
+| 服务 | 参数 | 说明 |
+| --- | --- | --- |
+| `mi_cards.sync_images` | `force`(bool)、`models`(list) | 抓取/标准化产品图 |
+| `mi_cards.refresh` | — | 重建设备树并重写面板 |
+
+---
+
+## 仓库里有两套实现
+
+同一产品的两代实现，**产品特性一致**，架构不同。
+
+| | `implementations/ha-integration/` | `implementations/legacy-standalone/` |
+| --- | --- | --- |
+| 形态 | HA custom integration | 独立 Python 脚本 |
+| 运行位置 | HA 进程内 | HA 之外的常驻电脑 / NAS cron |
+| 凭据 | **零** | access_token + NAS SSH |
+| 更新触发 | 注册表事件实时重建 | cron 周期 |
+| 房间改名 | `area_id` 不变，天然稳定 | 需自建状态层维持 |
+| 用户配置保护 | 有 | 无 |
+| 状态 | **主方案** | 历史方案，只做维护 |
+
+完整对照表见 [`implementations/README.md`](implementations/README.md)。
+
+---
 
 ## 目录结构
 
 ```
-custom_components/mi_cards/
-├── __init__.py        集成入口：静态资源 / WS 命令 / 面板 / 服务
-├── config_flow.py     配置流与选项流
-├── const.py           常量
-├── device_tree.py     设备树构建（读注册表）
-├── images.py          产品图抓取与标准化
-├── manifest.json      集成清单
-├── services.yaml      服务定义
-├── strings.json       配置流文案
-├── translations/      多语言
-└── static/
-    └── mi-cards.js    前端卡片（设备卡 / 详情 / 动态墙）
-
-legacy/                旧版外部脚本方案（已废弃，仅作参考）
-dev/                   浏览器自动化调试脚本
+ha-mi-cards/
+├── ai.prompt                  ← AI agent 仓库总纲（先读这个）
+├── hacs.json                 HACS 仓库元数据
+├── custom_components/mi_cards/  ← HACS 发布镜像（脚本生成，勿手改）
+│
+├── tools/
+│   ├── sync_release.py       同步镜像：implementations/ → 仓库根
+│   └── check_release.py      校验镜像一致（CI 强制）
+│
+└── implementations/
+    ├── README.md             两套方案对照
+    ├── ha-integration/       ← 方案 B（主）
+    │   ├── ai.prompt
+    │   ├── custom_components/mi_cards/   源码真身
+    │   ├── dev/               CDP 浏览器调试脚本
+    │   └── docs/              架构 / HA API 事实 / 前端 / 测试 / 路线图
+    └── legacy-standalone/    ← 方案 A（历史）
+        ├── ai.prompt
+        ├── docs/              架构 / 状态模型 / 路线图
+        └── *.py *.sh          脚本本体
 ```
+
+### 源码真身 vs 发布镜像
+
+HACS 要求集成代码在仓库根的 `custom_components/`，而本仓库把实现放进
+`implementations/ha-integration/` 以便两套方案并列。因此根目录那份是**生成的镜像**：
+
+```bash
+python3 tools/sync_release.py          # 同步
+python3 tools/check_release.py        # 校验一致（CI 强制）
+```
+
+**改代码请改 `implementations/ha-integration/custom_components/mi_cards/`。**
+
+---
+
+## 给 AI agent / 协作者
+
+仓库里每个方案都带一份 `ai.prompt`，是为 AI agent 写的上下文说明：
+
+| 文件 | 内容 |
+| --- | --- |
+| [`ai.prompt`](ai.prompt) | 仓库总纲：两套方案怎么选、发布镜像机制、硬性约定 |
+| [`implementations/ha-integration/ai.prompt`](implementations/ha-integration/ai.prompt) | 集成方案：模块地图、**12 条硬性约束**、常见任务的技术路线 |
+| [`implementations/legacy-standalone/ai.prompt`](implementations/legacy-standalone/ai.prompt) | 脚本方案：流水线拆解、文件契约、已知脆弱点 |
+
+配套技术文档：
+
+| 文档 | 内容 |
+| --- | --- |
+| [HA-API-FACTS.md](implementations/ha-integration/docs/HA-API-FACTS.md) | ★ 已核验的 HA API 事实表（`probatio` / `Store` / `LovelaceStorage` / 弃用项…） |
+| [ARCHITECTURE.md](implementations/ha-integration/docs/ARCHITECTURE.md) | 集成架构、生命周期、面板写入协议 |
+| [FRONTEND.md](implementations/ha-integration/docs/FRONTEND.md) | 前端卡片体系、响应式断点 |
+| [TESTING.md](implementations/ha-integration/docs/TESTING.md) | 真机验证工作流与验收清单 |
+| [ROADMAP.md](implementations/ha-integration/docs/ROADMAP.md) | 扩展路线图（下一步技术路线） |
+| [STATE-MODEL.md](implementations/legacy-standalone/docs/STATE-MODEL.md) | 稳定标识状态层的设计由来 |
+
+---
+
+## 环境要求
+
+- Home Assistant `2024.11.0` 及以上（开发验证于 `2026.11.1`）
+- **无第三方依赖** —— Pillow / probatio / aiohttp 都是 HA 核心自带
 
 ## License
 
-MIT
+MIT —— 见 [LICENSE](LICENSE)。

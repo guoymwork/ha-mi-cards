@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Python 语法检查
+        run: |
+          python3 -m py_compile implementations/ha-integration/custom_components/mi_cards/*.py
+          python3 -m py_compile implementations/legacy-standalone/*.py
+          python3 -m py_compile tools/*.py
+
+      - name: JSON 校验
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          root = pathlib.Path("implementations/ha-integration/custom_components/mi_cards")
+          files = [root / "manifest.json", root / "strings.json", pathlib.Path("hacs.json")]
+          files += sorted((root / "translations").glob("*.json"))
+          for f in files:
+              json.loads(f.read_text(encoding="utf-8"))
+              print("✓", f)
+          PY
+
+      - name: manifest 必填字段
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          m = json.load(open("implementations/ha-integration/custom_components/mi_cards/manifest.json"))
+          required = ["domain", "name", "codeowners", "requirements", "version", "iot_class"]
+          missing = [k for k in required if k not in m]
+          if missing:
+              print("✗ 缺少必填字段:", missing); sys.exit(1)
+          if list(m)[:2] != ["domain", "name"]:
+              print("✗ manifest 键序必须是 domain, name 开头"); sys.exit(1)
+          print("✓ manifest OK:", m["domain"], m["version"])
+          PY
+
+      - name: HACS 发布镜像一致性
+        run: python3 tools/check_release.py
+
+      - name: 前端 JS 语法检查
+        run: node --check implementations/ha-integration/custom_components/mi_cards/static/mi-cards.js

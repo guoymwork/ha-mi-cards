@@ -1,0 +1,270 @@
+# ai.prompt —— 方案 B（HA 集成）上下文
+
+> **这份文件是写给 AI agent 读的。**
+> 你（AI agent）即将在本目录修改代码前，先读完本文件，
+> 就能明白这个集成的意图、边界、已验证的 API 行为和标准的改动流程，
+> 不会做出破坏性改动，也不会重复踩已经踩过的坑。
+>
+> 配套文档：
+> `docs/HA-API-FACTS.md`（★ 最重要，所有核验过的 HA API 行为）
+> `docs/ARCHITECTURE.md`（模块职责与生命周期）
+> `docs/FRONTEND.md`（前端卡片体系）
+> `docs/TESTING.md`（验证工作流与验收清单）
+> `docs/ROADMAP.md`（扩展路线图）
+> `README.md`（文件清单、配置项、卡片用法）
+
+---
+
+## 0. 30 秒背景
+
+项目叫 **mi-cards**，目标是把小米智能家居那种「一个设备一张横向卡片」的桌面搬进
+Home Assistant。**本目录是当前的主方案** —— 一个 HACS 可安装的 custom integration，
+跑在 HA 进程内，零外部依赖、零配置部署。
+
+仓库里有两套实现：
+
+| 目录 | 方案 | 状态 |
+| --- | --- | --- |
+| `implementations/ha-integration/` ← **你在看这个** | HA custom integration | **主方案**，新功能都做这里 |
+| `implementations/legacy-standalone/` | 独立脚本 + SSH 部署 | 历史方案，只做维护 |
+
+集成方案继承了 legacy 的全部产品特性（1.43:1 横向卡片、圆形状态按钮、实物图、
+区域分类、详情浮层），但把「外部机器 + SSH + 令牌 + 定时任务」换成了「HA 进程内」。
+
+---
+
+## 1. 用户能看见的行为（改代码时别破坏这些）
+
+1. 侧边栏出现「设备」面板 → 里面是「全部」+ 每个房间一个视图
+2. 卡片是 **1.43:1 横向**，右上角有**圆形按钮**，开启时点亮主色（扫地机按钮是扫把）
+3. 卡片有**实物图**（从米家产品百科抓），没图的退化成占位图
+4. **全屋视图**副标题是「客厅 | 开启」，**区域视图**只显示「开启」
+5. 点卡片 → 弹出**详情浮层**（实物图 hero + 温度圈 + 开关 + 档位 + 常用功能列表）
+6. **房间/设备增减改名自动适配**（注册表一变，前端立刻重建）
+7. 手机 App 上**双列**（v1.0.1 修的 bug）
+
+---
+
+## 2. 架构速览
+
+```
+注册表（area / device / entity）
+   │  事件监听（3s 防抖）
+   ▼
+device_tree.build_device_tree()          ← 纯逻辑，可脱 HA 单测
+   │  返回 {areas[], devices{}, other[]}
+   ├─► WS 命令 mi_cards/device_tree ──► 前端 custom:mi-device-wall
+   ├─► 事件 mi_cards/tree_updated   ──► 前端 subscribeMessage
+   └─► images.ImageManager           ← 抓百科图 → Pillow 归一 → <config>/www/mi_cards/images/
+
+Lovelace 面板（存储模式）
+   └── 一个区域一个 view，每个 view 里一张 custom:mi-device-wall 卡片
+```
+
+---
+
+## 3. 模块地图（想改什么去哪个文件）
+
+| 想改什么 | 去哪 |
+| --- | --- |
+| 卡片怎么选主实体 / 开关 / 状态 / 详情行 | `device_tree.py` |
+| 区域与设备的聚合、过滤规则 | `device_tree.py` |
+| 产品图抓取、归一化、别名 | `images.py` |
+| 面板结构（视图、视图数、列数） | `__init__.py::_build_dashboard_config()` |
+| 面板写入与用户配置保护 | `__init__.py::_async_write_dashboard()` / `_has_foreign_content()` |
+| 静态资源注册 / 缓存版本 | `__init__.py::_async_register_resource()` + `const.py::VERSION` |
+| 配置项与校验 | `config_flow.py` + `const.py` |
+| 前端卡片 / 详情 / 响应式 | `static/mi-cards.js` |
+| 常量（域名、事件名、WS 类型） | `const.py` |
+
+**分层铁律**：`device_tree.py` 和 `images.py` 不碰 `hass` 的副作用（不写盘、不发事件），
+`__init__.py` 只做编排。这样前两个模块能脱 HA 单测。
+
+---
+
+## 4. 硬性约束 —— 违反就会出线上事故
+
+### C1 ⚠️ 配置流的 data_schema 只能用基础类型
+
+`probatio.to_field_list()` 只认 `str / bool / int / float / In / Email / Url / Lower`。
+**自定义校验函数不可序列化**，会抛 `ValueError: unable to serialize schema` → 配置流 500。
+
+校验逻辑要放在流程里，用 `async_show_form(..., errors=errors)` 回显。
+
+### C2 ⚠️ 服务回调签名是 `func(call)`，不传 `hass`
+
+```python
+async def _async_service_refresh(call: ServiceCall) -> None:
+    hass = call.hass        # ← 从 call 上取
+```
+
+写成 `(hass, call)` 会报 `missing 1 required positional argument: 'call'`。
+
+### C3 ⚠️ 改前端 JS 必须 bump `const.py` 的 `VERSION`
+
+资源 URL 是 `/api/mi_cards_static/mi-cards.js?v={VERSION}`。
+不 bump 版本号，浏览器拿的是旧文件，**改了等于没改**。
+同时要同步 `manifest.json` 的 `version`。
+
+### C4 ⚠️ 源码真身在 `implementations/ha-integration/`，根目录是镜像
+
+HACS 只读仓库根的 `custom_components/`。根目录那份是**由脚本生成的镜像**：
+
+```bash
+python3 tools/sync_release.py      # 改完源码后必须跑
+python3 tools/check_release.py    # CI 会强制校验
+```
+
+**改代码要改 `implementations/ha-integration/custom_components/mi_cards/`**，
+直接改根目录镜像会被 CI 判为漂移。
+
+### C5 ⚠️ `device_registry.devices` 只能迭代
+
+```python
+for device in reg.devices:          # ✅
+reg.devices.values()                 # ❌ 已弃用，2027.9 移除
+```
+
+### C6 ⚠️ 注册表事件常量不在 `homeassistant/const.py`
+
+分别从 `area_registry` / `device_registry` / `entity_registry` 三个 helper 模块 import。
+
+### C7 ⚠️ Lovelace sections 布局要写全三个字段
+
+`type: sections` + `max_columns: 4` + section 的 `column_span: 4`。
+少一个 → 卡片被挤成窄条一列。
+
+### C8 manifest 键序 + `iot_class`
+
+- 键序：`domain`, `name`, 然后**字母序**
+- `iot_class` 是 hassfest 对自定义集成的**强制项**，缺了 HACS 校验直接 error
+- `requirements` 保持 `[]` —— Pillow / probatio / aiohttp 都是 HA 核心依赖
+
+### C9 产品图归一化的 5 个常量不能随意改
+
+```python
+CANVAS=480  FILL=0.86  WIDE_RATIO=2.0  WIDE_FILL=0.92  MIN_CONTENT=12
+```
+
+legacy 方案（`../legacy-standalone/normalize_images.py`）用的是**完全相同的值**。
+改这里要同步改那里，否则两套方案产出的图片观感会不一致。
+
+### C10 不要覆盖用户自己的面板
+
+`_has_foreign_content()` 的语义：**只有面板里存在非本集成生成的内容时才保护**。
+空面板 / 全是 `custom:mi-device-wall` 的面板 → 照常接管。
+改动这个判定时，12 个单元测试用例和真机双向验证都要重跑。
+
+### C11 前端零依赖零构建
+
+纯原生 JS，不用 lit、不用 TypeScript、不需要 npm、不需要构建步骤。
+新增依赖会破坏「装上就能用」这个核心优势。
+
+### C12 卡片内部尺寸用 `cqh` 而不是固定 px
+
+`cqh`（容器查询高度单位）让卡片在窄列下等比缩放并保持 1.43:1。
+写死 px 会在手机双列时挤爆。
+
+---
+
+## 5. 已核验的 HA API 行为（速查）
+
+完整版见 `docs/HA-API-FACTS.md`。最常问的几个：
+
+| 问题 | 答案 |
+| --- | --- |
+| 校验库是啥 | `probatio`（0.13.0），**不再是 voluptuous** |
+| `Store` 怎么用 | `Store(hass, version, key)` → `.storage/<key>` |
+| 面板怎么写 | `hass.data[LOVELACE_DATA].dashboards[url_path]` + `LovelaceStorage.async_save()` |
+| 存储文件结构 | `.storage/lovelace.<id>` 里的 `data.config.views`（**不是** `data.views`） |
+| 静态资源怎么暴露 | `http.StaticPathConfig` 或直接放 `<config>/www/` 用 `/local/` |
+| `OptionsFlow.config_entry` | 是**属性**，不是方法 |
+| WS 命令怎么注册 | `websocket_api.async_register_command(hass, fn)`，重复注册直接覆盖 |
+| 事件常量在哪 | 三个 helper 模块，不在 `homeassistant/const.py` |
+
+---
+
+## 6. 标准改动流程
+
+```
+1. 读本文档 + docs/HA-API-FACTS.md
+2. 改代码
+   ├─ Python 改动 → implementations/ha-integration/custom_components/mi_cards/
+   └─ 前端改动  → 同上 static/mi-cards.js + bump const.py 的 VERSION + manifest.json 的 version
+3. 本地检查
+   python3 -m py_compile implementations/ha-integration/custom_components/mi_cards/*.py
+   node --check implementations/ha-integration/custom_components/mi_cards/static/mi-cards.js
+4. 同步 HACS 镜像
+   python3 tools/sync_release.py && python3 tools/check_release.py
+5. 上 NAS + 重启 + 验收（见 docs/TESTING.md）
+6. 提交 + 打 tag + 发 Release（zip 里只放 custom_components/mi_cards/）
+```
+
+### 发布产物怎么打
+
+```bash
+rm -rf /tmp/pkg && mkdir -p /tmp/pkg/custom_components
+rsync -a --exclude '__pycache__' \
+  implementations/ha-integration/custom_components/mi_cards /tmp/pkg/custom_components/
+cd /tmp/pkg && zip -qr mi_cards-<版本>.zip . -x '*.DS_Store'
+```
+
+zip 里**只有** `custom_components/mi_cards/`（HACS 期望的结构）。
+`hacs.json` 在仓库根，不进 zip（HACS 从仓库读）。
+
+---
+
+## 7. 常见任务的技术路线
+
+| 用户说 | 怎么做 | 落点 |
+| --- | --- | --- |
+| 「这个房间的图标不对」 | 优先用 HA 原生区域图标（`area.icon`），不要靠中文名猜 | `device_tree.py::guess_area_slug_and_icon()` |
+| 「卡片状态显示不准」 | 检查 `_pick_status_sensor()` 的选取优先级 | `device_tree.py` |
+| 「多显示一个实体」 | 引入 `entity_filter` 白名单，不要一实体一卡 | `device_tree.py` + `const.py` + `config_flow.py` |
+| 「详情里要能调档位」 | 按 `domain` 分派渲染器（`DETAIL_RENDERERS` map） | `device_tree.py::_build_detail()` + `static/mi-cards.js` |
+| 「手机上不好看」 | 改三个断点（900 / 620 / 默认），用 `cqh` 适配 | `static/mi-cards.js::DEVICE_WALL_CSS` |
+| 「面板没出来」 | 查日志「已被占用」→ 让用户在配置流里换路径 | `__init__.py::_async_write_dashboard()` |
+| 「要支持多个面板」 | 去掉 `single_config_entry`，让多条目共存 | `manifest.json` + `__init__.py` |
+| 「卡片要显示历史曲线」 | 用内置 `<ha-sparkline>` + `history/period` REST | `static/mi-cards.js` |
+
+更完整的路线图见 `docs/ROADMAP.md`。
+
+---
+
+## 8. 已知陷阱清单
+
+| 现象 | 真因 | 处理 |
+| --- | --- | --- |
+| 配置流 500 `unable to serialize schema` | schema 里用了自定义校验函数 | 见 C1 |
+| 服务报 `missing 1 required positional argument: 'call'` | 回调签名写成 `(hass, call)` | 见 C2 |
+| 改了 JS 但界面没变 | 没 bump VERSION | 见 C3 |
+| 面板只有一个空的「全部」视图 | 集成加载时实体还没就绪 | 已修：等 `EVENT_HOMEASSISTANT_STARTED` + 30s 重试 |
+| 卡片挤成窄条一列 | sections 少写 `max_columns`/`column_span` | 见 C7 |
+| 面板内容被莫名覆盖 | 保护逻辑判定有误 | 见 C10，跑 12 个单元测试 |
+| 日志出现 `uses device_registry.devices as a mapping` | 用了 `.values()` | 见 C5 |
+| `mi_cards.refresh` 报 WS 断连 | 重启类服务会切断自己的连接 | **正常**，看 PID 变化判断 |
+| 面板在磁盘改了但集成没反应 | HA 内存有缓存 | 重启 HA |
+
+---
+
+## 9. 安全与边界
+
+- **不要**把 `ha_tokens.json` / `ha_at.txt` / `.storage/auth` 的内容提交进 git
+  （`.gitignore` 已覆盖前两个）
+- 集成本身**不需要任何 token** —— 它跑在 HA 进程内，用 `hass` 上下文。
+  如果你发现自己要加 token 依赖，说明方向错了
+- 不要在代码里硬编码内网 IP / 用户名（`../legacy-standalone/` 里有历史遗留，
+  **不要**把它带进本方案）
+- 前端渲染设备名/区域名时注意转义（目前走 `textContent`，不要改成 `innerHTML`）
+
+---
+
+## 10. 给下一个 AI agent 的最后叮嘱
+
+1. **先读 `docs/HA-API-FACTS.md` 再写代码** —— 那里记录了所有 HA API 的真实行为，
+   凭直觉写必踩坑。
+2. **不确定的 API 行为，去查 HA 源码**（`home-assistant/core` 对应 tag 的
+   `homeassistant/components/<name>/`），别猜。项目里的每条事实都是这么核验出来的。
+3. **改完必须验证** —— 按 `docs/TESTING.md` 的验收清单过一遍，
+   至少跑到「桌面端 4 列 + 比例 1.43 + 图片全加载」和「移动端 390px 双列」。
+4. **不确定要不要动 legacy 方案** —— 动。legacy 只是历史参考，新功能一律在本目录。

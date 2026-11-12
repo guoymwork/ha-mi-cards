@@ -1,0 +1,14 @@
+{
+  "domain": "mi_cards",
+  "name": "米家风格设备面板",
+  "codeowners": ["@guoymwork"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "lovelace", "websocket_api"],
+  "documentation": "https://github.com/guoymwork/ha-mi-cards",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/guoymwork/ha-mi-cards/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "1.0.1"
+}
