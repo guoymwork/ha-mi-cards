@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 仓库自检（结构 / manifest / 敏感信息 / 版本一致性）
+        run: python3 tools/check.py
+
+      - name: Python 语法检查
+        run: |
+          python3 -m py_compile custom_components/mi_cards/*.py
+          python3 -m py_compile tools/*.py
+
+      - name: 前端 JS 语法检查
+        run: node --check custom_components/mi_cards/static/mi-cards.js

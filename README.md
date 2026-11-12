@@ -18,6 +18,7 @@
 | **房间自适应** | 房间/设备增减改名自动适配，注册表一变前端立刻重建 |
 | **手机双列** | 手机 App 上两列铺满，不再是难看的大片留白 |
 | **零配置** | 装上 → 重启 → 添加集成，完事 |
+| **零凭据** | 集成跑在 HA 进程内，不需要任何 token |
 
 ---
 
@@ -80,83 +81,89 @@ entity: switch.living_room_lamp
 
 ---
 
-## 仓库里有两套实现
-
-同一产品的两代实现，**产品特性一致**，架构不同。
-
-| | `implementations/ha-integration/` | `implementations/legacy-standalone/` |
-| --- | --- | --- |
-| 形态 | HA custom integration | 独立 Python 脚本 |
-| 运行位置 | HA 进程内 | HA 之外的常驻电脑 / NAS cron |
-| 凭据 | **零** | access_token + NAS SSH |
-| 更新触发 | 注册表事件实时重建 | cron 周期 |
-| 房间改名 | `area_id` 不变，天然稳定 | 需自建状态层维持 |
-| 用户配置保护 | 有 | 无 |
-| 状态 | **主方案** | 历史方案，只做维护 |
-
-完整对照表见 [`implementations/README.md`](implementations/README.md)。
-
----
-
 ## 目录结构
 
 ```
 ha-mi-cards/
-├── ai.prompt                  ← AI agent 仓库总纲（先读这个）
+├── ai.prompt                  ← ★ AI agent 上下文（先读这个）
 ├── hacs.json                 HACS 仓库元数据
-├── custom_components/mi_cards/  ← HACS 发布镜像（脚本生成，勿手改）
+├── custom_components/mi_cards/   ← 集成源码（HACS 直接安装这里）
+│   ├── __init__.py           入口：静态资源 / WS 命令 / 面板 / 服务 / 注册表监听
+│   ├── config_flow.py        配置流与选项流
+│   ├── const.py              常量（域名、版本号、WS 类型、配置项名）
+│   ├── device_tree.py        设备树构建（读三个注册表）
+│   ├── images.py             产品图抓取与标准化
+│   ├── manifest.json         集成清单
+│   ├── services.yaml         服务定义
+│   ├── strings.json          配置流文案
+│   ├── translations/         en / zh-Hans
+│   └── static/mi-cards.js    前端卡片（设备卡 / 详情浮层 / 动态区域墙）
 │
-├── tools/
-│   ├── sync_release.py       同步镜像：implementations/ → 仓库根
-│   └── check_release.py      校验镜像一致（CI 强制）
+├── docs/                     技术文档
+│   ├── ARCHITECTURE.md       模块职责、生命周期、面板与资源写入协议
+│   ├── HA-API-FACTS.md       ★ 已核验的 HA API 事实表（所有踩过的坑）
+│   ├── FRONTEND.md           前端卡片体系、样式、响应式
+│   ├── TESTING.md            验证工作流与验收清单
+│   └── ROADMAP.md            扩展路线图（下一步技术路线）
 │
-└── implementations/
-    ├── README.md             两套方案对照
-    ├── ha-integration/       ← 方案 B（主）
-    │   ├── ai.prompt
-    │   ├── custom_components/mi_cards/   源码真身
-    │   ├── dev/               CDP 浏览器调试脚本
-    │   └── docs/              架构 / HA API 事实 / 前端 / 测试 / 路线图
-    └── legacy-standalone/    ← 方案 A（历史）
-        ├── ai.prompt
-        ├── docs/              架构 / 状态模型 / 路线图
-        └── *.py *.sh          脚本本体
+├── dev/                      CDP 浏览器调试脚本（开发者用）
+└── tools/
+    ├── check.py              仓库自检（结构 / manifest / 敏感信息 / 版本一致性）
+    ├── install_git_hooks.sh  安装本地守卫钩子
+    ├── enable_ci.sh          启用 GitHub Actions（需 workflow scope）
+    └── github-actions/ci.yml CI 配置
 ```
 
-### 源码真身 vs 发布镜像
+---
 
-HACS 要求集成代码在仓库根的 `custom_components/`，而本仓库把实现放进
-`implementations/ha-integration/` 以便两套方案并列。因此根目录那份是**生成的镜像**：
+## 开发
 
 ```bash
-python3 tools/sync_release.py          # 同步
-python3 tools/check_release.py        # 校验一致（CI 强制）
+# 仓库自检（结构 / manifest 规范 / 敏感信息 / 版本一致性 / 语法）
+python3 tools/check.py
+
+# 安装本地守卫钩子：提交前自动跑上面这些检查
+bash tools/install_git_hooks.sh
 ```
 
-**改代码请改 `implementations/ha-integration/custom_components/mi_cards/`。**
+**改动前必读** [`ai.prompt`](ai.prompt)（给 AI agent 的上下文）与
+[`docs/HA-API-FACTS.md`](docs/HA-API-FACTS.md)（已核验的 HA API 行为）。
+改完按 [`docs/TESTING.md`](docs/TESTING.md) 的验收清单过一遍。
+
+### 发布
+
+```bash
+# 1. 改完前端 JS 后，bump 两处版本号
+#    custom_components/mi_cards/const.py     -> VERSION = "1.x.y"
+#    custom_components/mi_cards/manifest.json -> "version": "1.x.y"
+# 2. 打包（zip 里只有 custom_components/）
+rm -rf /tmp/pkg && mkdir -p /tmp/pkg/custom_components
+rsync -a --exclude '__pycache__' custom_components/mi_cards /tmp/pkg/custom_components/
+(cd /tmp/pkg && zip -qr mi_cards-1.x.y.zip . -x '*.DS_Store')
+# 3. 打 tag 发 Release
+gh release create v1.x.y mi_cards-1.x.y.zip --title "v1.x.y" --notes "..."
+```
+
+> 版本号是前端资源的缓存键（资源 URL 带 `?v={VERSION}`）。不 bump 的话
+> 浏览器拿旧文件，**改了等于没改**。
 
 ---
 
 ## 给 AI agent / 协作者
 
-仓库里每个方案都带一份 `ai.prompt`，是为 AI agent 写的上下文说明：
-
-| 文件 | 内容 |
-| --- | --- |
-| [`ai.prompt`](ai.prompt) | 仓库总纲：两套方案怎么选、发布镜像机制、硬性约定 |
-| [`implementations/ha-integration/ai.prompt`](implementations/ha-integration/ai.prompt) | 集成方案：模块地图、**12 条硬性约束**、常见任务的技术路线 |
-| [`implementations/legacy-standalone/ai.prompt`](implementations/legacy-standalone/ai.prompt) | 脚本方案：流水线拆解、文件契约、已知脆弱点 |
+仓库根有一份 [`ai.prompt`](ai.prompt)，是为 AI agent 写的上下文说明：
+项目背景、模块地图、**12 条硬性约束**、已核验的 HA API 行为速查、
+常见任务的技术路线、验证流程。**开始改代码前请先读它。**
 
 配套技术文档：
 
 | 文档 | 内容 |
 | --- | --- |
-| [HA-API-FACTS.md](implementations/ha-integration/docs/HA-API-FACTS.md) | ★ 已核验的 HA API 事实表（`probatio` / `Store` / `LovelaceStorage` / 弃用项…） |
-| [ARCHITECTURE.md](implementations/ha-integration/docs/ARCHITECTURE.md) | 集成架构、生命周期、面板写入协议 |
-| [FRONTEND.md](implementations/ha-integration/docs/FRONTEND.md) | 前端卡片体系、响应式断点 |
-| [TESTING.md](implementations/ha-integration/docs/TESTING.md) | 真机验证工作流与验收清单 |
-| [ROADMAP.md](implementations/ha-integration/docs/ROADMAP.md) | 扩展路线图（下一步技术路线） |
-| [STATE-MODEL.md](implementations/legacy-standalone/docs/STATE-MODEL.md) | 稳定标识状态层的设计由来 |
+| [HA-API-FACTS.md](docs/HA-API-FACTS.md) | ★ 已核验的 HA API 事实表（`probatio` / `Store` / `LovelaceStorage` / 弃用项…） |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 集成架构、生命周期、面板写入协议 |
+| [FRONTEND.md](docs/FRONTEND.md) | 前端卡片体系、响应式断点 |
+| [TESTING.md](docs/TESTING.md) | 验证工作流与验收清单 |
+| [ROADMAP.md](docs/ROADMAP.md) | 扩展路线图（下一步技术路线） |
 
 ---
 
@@ -164,6 +171,13 @@ python3 tools/check_release.py        # 校验一致（CI 强制）
 
 - Home Assistant `2024.11.0` 及以上（开发验证于 `2026.11.1`）
 - **无第三方依赖** —— Pillow / probatio / aiohttp 都是 HA 核心自带
+
+## 前代方案
+
+本项目最早是「独立脚本 + SSH 部署」的实现（常驻电脑 + 令牌 + 定时任务），
+已被本仓库完全取代。那套代码保留在
+[ha-mi-cards-legacy](https://github.com/guoymwork/ha-mi-cards-legacy)（**已归档废弃**），
+仅作设计参考与兜底通道。
 
 ## License
 
